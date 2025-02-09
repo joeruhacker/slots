@@ -2,11 +2,20 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8" />
+  <!-- Адаптивный тег для мобильных устройств -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>React Slot Machine</title>
   <style>
-    /* ----------------------------------------
-       Простые стили. При желании улучшите сами.
-       ---------------------------------------- */
+    /* Определяем базовый размер ячейки через CSS-переменную */
+    :root {
+      --cell-size: 80px;
+    }
+    /* На маленьких экранах уменьшаем размер ячеек */
+    @media (max-width: 600px) {
+      :root {
+        --cell-size: 60px;
+      }
+    }
 
     body {
       margin: 0;
@@ -20,46 +29,16 @@
     #root {
       margin: 30px auto;
       max-width: 800px;
+      padding: 0 10px;
     }
 
     h1 {
       margin-bottom: 10px;
     }
 
-    .slot-wrapper {
-      display: inline-block;
-      background: #333;
-      padding: 20px;
-      border-radius: 8px;
-    }
-
     .info-panel {
       margin-bottom: 20px;
-    }
-
-    .slot-grid {
-      display: grid;
-      grid-template-columns: repeat(5, 80px);
-      grid-template-rows: repeat(3, 80px);
-      gap: 8px;
-      margin-bottom: 20px;
-    }
-
-    .cell {
-      width: 80px;
-      height: 80px;
-      background: #444;
-      border: 2px solid #555;
-      border-radius: 4px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-
-    .cell img {
-      max-width: 70%;
-      max-height: 70%;
-      object-fit: contain;
+      font-size: 1.2em;
     }
 
     .controls {
@@ -69,17 +48,20 @@
     .controls input {
       width: 50px;
       text-align: center;
-    }
-
-    .message {
-      margin: 10px;
-      font-style: italic;
+      padding: 5px;
+      font-size: 16px;
     }
 
     .paylines-info {
       font-size: 14px;
       color: #ccc;
       margin-top: 5px;
+    }
+
+    .message {
+      margin: 10px;
+      font-style: italic;
+      min-height: 24px;
     }
 
     .spin-btn {
@@ -91,11 +73,61 @@
       border-radius: 5px;
       color: #000;
       font-weight: bold;
+      transition: background 0.3s;
     }
-
+    .spin-btn:hover:not(:disabled) {
+      background: #e88;
+    }
     .spin-btn:disabled {
       opacity: 0.5;
       cursor: not-allowed;
+    }
+
+    /* Стили для барабанов */
+    .reels-container {
+      display: flex;
+      justify-content: center;
+      gap: 8px;
+      margin-bottom: 20px;
+    }
+    .reel {
+      width: var(--cell-size);
+      height: calc(var(--cell-size) * 3);
+      overflow: hidden;
+      background: #333;
+      border: 2px solid #555;
+      border-radius: 4px;
+    }
+    .reel-inner {
+      display: flex;
+      flex-direction: column;
+    }
+    .cell {
+      width: var(--cell-size);
+      height: var(--cell-size);
+      background: #444;
+      border-bottom: 2px solid #555;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .cell:last-child {
+      border-bottom: none;
+    }
+    .cell img {
+      max-width: 70%;
+      max-height: 70%;
+      object-fit: contain;
+    }
+
+    /* Ключевые кадры для анимации «вращения» */
+    @keyframes spinAnimation {
+      from {
+        transform: translateY(0);
+      }
+      to {
+        transform: translateY(calc(-1 * var(--translate-distance)));
+      }
     }
   </style>
 </head>
@@ -110,36 +142,19 @@
     (function() {
       const { useState } = React;
 
-      /*
-        Для «нормального» слота нам нужно:
-        1) 5 барабанов x 3 ряда = 15 ячеек.
-        2) Несколько символов.
-        3) Paylines (линии), по которым идёт проверка выигрыша.
-        4) Ставка (bet), умножающая выигрыш.
-        5) Кредиты игрока (credits).
+      // Звуковой эффект вращения (можно заменить URL на другой звук)
+      const spinSound = new Audio('https://actions.google.com/sounds/v1/alarms/beep_short.ogg');
 
-        Алгоритм при "SPIN":
-         - Проверить, хватает ли кредитов на ставку.
-         - Случайно сгенерировать символы в 15 ячейках.
-         - Для каждой линии проверить, сколько одинаковых символов подряд слева направо.
-         - Рассчитать выигрыш и добавить к кредитам.
-         - Вывести сообщение о выигрыше или проигрыше.
-      */
-
-      // Примеры ссылок на иконки (на реальном проекте, конечно, лучше хранить локально).
+      // Иконки для символов
       const icons = {
-        monkey: 'https://cdn-icons-png.flaticon.com/512/2395/2395620.png', // Обезьяна
-        banana: 'https://cdn-icons-png.flaticon.com/512/590/590685.png',   // Банан
-        palm:   'https://cdn-icons-png.flaticon.com/512/727/727841.png',   // Пальма
-        apple:  'https://cdn-icons-png.flaticon.com/512/415/415733.png',   // Яблоко
-        pear:   'https://cdn-icons-png.flaticon.com/512/415/415743.png',   // Груша
+        monkey: 'https://cdn-icons-png.flaticon.com/512/2395/2395620.png',
+        banana: 'https://cdn-icons-png.flaticon.com/512/590/590685.png',
+        palm:   'https://cdn-icons-png.flaticon.com/512/727/727841.png',
+        apple:  'https://cdn-icons-png.flaticon.com/512/415/415733.png',
+        pear:   'https://cdn-icons-png.flaticon.com/512/415/415743.png',
       };
 
-      // Массив символов и их «базовая» награда при совпадении. 
-      // (В реальном слоте обычно для 3, 4, 5 совпадений — разные коэффициенты,
-      //  но мы сделаем упрощённую систему, где чем «реже» символ,
-      //  тем выше payoutBase.)
-      // Можете модифицировать вероятности (weight) и награды (payoutBase).
+      // Массив символов с весом и базовой наградой
       const symbols = [
         { name: 'monkey', icon: icons.monkey, weight: 1,  payoutBase: 30 },
         { name: 'banana', icon: icons.banana, weight: 2,  payoutBase: 20 },
@@ -148,143 +163,128 @@
         { name: 'pear',   icon: icons.pear,   weight: 4,  payoutBase: 5 },
       ];
 
-      /*
-        Распределим символы по «весу» (weight), чтобы чаще выпадали "pear" и реже "monkey".
-        Для этого составим общий массив, где каждый символ повторён weight раз.
-        Тогда случайный выбор из этого массива даёт нужную вероятность.
-      */
+      // Генерируем массив с повторениями символов согласно их весу
       let weightedSymbols = [];
       symbols.forEach(s => {
         for (let i = 0; i < s.weight; i++) {
           weightedSymbols.push(s);
         }
       });
-      // Теперь randomSymbol() будет выбирать символ, учитывая его вес.
+
+      // Функция случайного выбора символа с учётом веса
       function randomSymbol() {
         const index = Math.floor(Math.random() * weightedSymbols.length);
         return weightedSymbols[index];
       }
 
-      // Paylines: каждая линия — это массив индексов ячеек (0..14),
-      // которых мы «читаем» слева направо.
-      //
-      // Раскладка (индексы по строкам для наглядности):
-      //   0   1   2   3   4
-      //   5   6   7   8   9
-      //   10  11  12  13  14
-      //
-      // Ниже пример 9 популярных линий. Можно добавить больше, если хотите.
+      // Paylines – линии проверки (индексы согласно расположению в сетке 5x3)
       const paylines = [
-        // Горизонтальные линии
-        [0, 1, 2, 3, 4],     // Верхняя
-        [5, 6, 7, 8, 9],     // Средняя
-        [10, 11, 12, 13, 14],// Нижняя
-
-        // V-образные / диагональные
+        [0, 1, 2, 3, 4],
+        [5, 6, 7, 8, 9],
+        [10, 11, 12, 13, 14],
         [0, 6, 7, 8, 4],
         [10, 6, 7, 8, 14],
         [0, 6, 2, 8, 4],
         [10, 6, 12, 8, 14],
-
-        // N-образные
         [5, 1, 2, 3, 9],
         [5, 11, 12, 13, 9]
       ];
 
-      /*
-        Функция подсчёта выигрыша по одной линии:
-        - Проходим слева направо.
-        - Считаем, сколько подряд одинаковых символов начиная с 1-го барабана.
-        - Если находим N совпадений (3, 4 или 5), рассчитываем награду
-          символа * N * (ставку bet).
-        - В реальных слотах обычно платится только самая большая комбинация слева направо.
-          Например, если 3 символа совпали, и 4-й совпал, то берётся сразу сочетание из 4, а не из 3.
-        - Мы упростим: найдём максимальную серию подряд в начале (от 1-го барабана) 
-          и заплатим за неё. Остальные совпадения (после прерывания) не считаем.
-      */
+      // Подсчёт выигрыша по линии
       function calcLineWin(cells, lineIndices, bet) {
-        // cells — массив из 15 ячеек (объекты-символы),
-        // lineIndices — массив (5 индексов),
-        // bet — ставка.
         const firstSymbol = cells[lineIndices[0]];
-        let matchCount = 1; // минимум 1 символ уже «есть»
-
+        let matchCount = 1;
         for (let i = 1; i < lineIndices.length; i++) {
           const currentSymbol = cells[lineIndices[i]];
           if (currentSymbol.name === firstSymbol.name) {
             matchCount++;
           } else {
-            break; // прерываемся, так как символ отличается
+            break;
           }
         }
-
-        // Начислим выигрыш, если совпало 3 и более подряд
         if (matchCount >= 3) {
-          // payoutBase — базовый показатель награды у символа
           const base = firstSymbol.payoutBase;
-          // Для упрощения можно умножить base * matchCount * bet
-          // Но обычно у каждого matchCount свой коэффициент. 
-          // В примере сделаем что-то попроще (чтобы играть было интереснее).
           let multiplier = 1;
           if (matchCount === 3) multiplier = 1;
           if (matchCount === 4) multiplier = 2;
           if (matchCount === 5) multiplier = 5;
           return base * multiplier * bet;
         }
-
         return 0;
       }
 
       function App() {
-        // 15 ячеек (5x3). Будем хранить их в одном массиве.
-        // Каждый элемент — объект символа {name, icon, weight, payoutBase}
+        // Хранение финальных ячеек (15 символов)
         const [cells, setCells] = useState(Array(15).fill(null));
-
-        // Кредиты, ставка, сообщение
         const [credits, setCredits] = useState(100);
         const [bet, setBet] = useState(1);
         const [message, setMessage] = useState('Добро пожаловать в Monkey Slot!');
-        // Процесс «крутится» (для блокировки кнопки SPIN, пока идёт анимация)
         const [isSpinning, setIsSpinning] = useState(false);
+        // reelsData – данные для анимации (массив из 5 столбцов, каждый – массив символов)
+        const [reelsData, setReelsData] = useState(null);
 
         function handleSpin() {
-          // Если уже крутимся — выходим
           if (isSpinning) return;
-          
-          // Ставка не может превышать кредит
           if (bet > credits) {
             setMessage('Недостаточно кредитов для такой ставки!');
             return;
           }
-
-          // Уменьшаем кредиты на сумму ставки
           setCredits(prev => prev - bet);
           setMessage('Крутим барабаны...');
           setIsSpinning(true);
 
-          // Здесь можно сделать анимацию вращения (setTimeout, CSS и т.д.)
-          // Пока упрощённо: «моментально» сгенерируем результаты через небольшую паузу.
-          setTimeout(() => {
-            // Генерируем новый массив из 15 символов.
-            const newCells = Array(15).fill(null).map(() => randomSymbol());
-            setCells(newCells);
+          // Проигрываем звук
+          spinSound.currentTime = 0;
+          spinSound.play();
 
-            // Теперь считаем общий выигрыш по всем линиям
+          // Генерируем финальный результат – 15 символов
+          const newCells = Array(15).fill(null).map(() => randomSymbol());
+          const extraCount = 10; // Количество дополнительных символов для эффекта вращения
+          const newReelsData = [];
+          for (let col = 0; col < 5; col++) {
+            // Для столбца: итоговые символы (из финального результата)
+            const finalSymbols = [newCells[col], newCells[col+5], newCells[col+10]];
+            const extraSymbols = [];
+            for (let i = 0; i < extraCount; i++) {
+              extraSymbols.push(randomSymbol());
+            }
+            // Полный столбец для анимации: сначала "лишние" символы, потом финальные
+            const fullReel = extraSymbols.concat(finalSymbols);
+            newReelsData.push(fullReel);
+          }
+          setReelsData(newReelsData);
+
+          // Определяем размер ячейки из CSS (по умолчанию 80px)
+          let cellSize = 80;
+          const rootStyle = getComputedStyle(document.documentElement);
+          const cellSizeValue = rootStyle.getPropertyValue('--cell-size').trim();
+          if (cellSizeValue) {
+            const parsed = parseInt(cellSizeValue);
+            if (!isNaN(parsed)) {
+              cellSize = parsed;
+            }
+          }
+          // Расстояние, на которое «прокрутится» столбец – число дополнительных символов * размер ячейки
+          const translation = extraCount * cellSize;
+          // Ждем окончания анимации (1.5с + небольшой запас), после чего обновляем состояние финального результата
+          const animationDuration = 1500;
+          setTimeout(() => {
             let totalWin = 0;
             paylines.forEach(line => {
               const lineWin = calcLineWin(newCells, line, bet);
               totalWin += lineWin;
             });
-
             if (totalWin > 0) {
               setCredits(prev => prev + totalWin);
               setMessage(`Вы выиграли ${totalWin} кредитов!`);
             } else {
               setMessage('Ничего не выпало. Попробуйте ещё!');
             }
-
+            setCells(newCells);
+            setReelsData(null);
             setIsSpinning(false);
-          }, 600); // небольшая задержка, имитирующая «вращение»
+          }, animationDuration + 200);
+          // Для анимации используется значение translation, которое применяется через CSS-переменную
         }
 
         function handleChangeBet(e) {
@@ -294,46 +294,70 @@
           }
         }
 
-        // Отрисуем поле 5x3
-        return React.createElement('div', { className: 'slot-wrapper' }, 
-          React.createElement('h1', null, 'Monkey Slot Machine'),
-          // Панель с кредитами, ставкой
-          React.createElement('div', { className: 'info-panel' },
-            `Кредиты: ${credits}`
-          ),
-          React.createElement('div', { className: 'controls' },
-            'Ставка: ',
-            React.createElement('input', {
-              type: 'number',
-              min: 1,
-              value: bet,
-              onChange: handleChangeBet
-            }),
-            React.createElement('div', { className: 'paylines-info' },
-              `Играем на ${paylines.length} линий, ставка умножается на выигрыш.`
-            )
-          ),
+        // Рендер анимированных барабанов (во время вращения)
+        function renderAnimatedReels() {
+          const extraCount = 10;
+          let cellSize = 80;
+          const rootStyle = getComputedStyle(document.documentElement);
+          const cellSizeValue = rootStyle.getPropertyValue('--cell-size').trim();
+          if (cellSizeValue) {
+            const parsed = parseInt(cellSizeValue);
+            if (!isNaN(parsed)) {
+              cellSize = parsed;
+            }
+          }
+          const translation = extraCount * cellSize;
+          return React.createElement('div', { className: 'reels-container' },
+            reelsData.map((reel, col) => {
+              return React.createElement('div', { className: 'reel', key: col },
+                React.createElement('div', { 
+                  className: 'reel-inner', 
+                  style: {
+                    '--translate-distance': translation + 'px',
+                    animation: `spinAnimation 1.5s ease-out forwards`,
+                    animationDelay: `${col * 0.1}s`
+                  }
+                },
+                reel.map((symbol, idx) => {
+                  return React.createElement('div', { className: 'cell', key: idx },
+                    React.createElement('img', { src: symbol.icon, alt: symbol.name })
+                  );
+                })
+                )
+              );
+            })
+          );
+        }
 
-          // Сетка 5x3
-          React.createElement('div', { className: 'slot-grid' },
-            cells.map((symbol, index) => {
-              return React.createElement('div', { className: 'cell', key: index },
-                symbol && React.createElement('img', {
-                  src: symbol.icon,
-                  alt: symbol.name
+        // Рендер статичных барабанов (финальный результат)
+        function renderStaticReels() {
+          return React.createElement('div', { className: 'reels-container' },
+            [0,1,2,3,4].map(col => {
+              const finalSymbols = [cells[col], cells[col+5], cells[col+10]];
+              return React.createElement('div', { className: 'reel', key: col },
+                finalSymbols.map((symbol, idx) => {
+                  return React.createElement('div', { className: 'cell', key: idx },
+                    symbol && React.createElement('img', { src: symbol.icon, alt: symbol.name })
+                  );
                 })
               );
             })
+          );
+        }
+
+        return React.createElement('div', null, 
+          React.createElement('h1', null, 'Monkey Slot Machine'),
+          React.createElement('div', { className: 'info-panel' }, `Кредиты: ${credits}`),
+          React.createElement('div', { className: 'controls' },
+            'Ставка: ',
+            React.createElement('input', { type: 'number', min: 1, value: bet, onChange: handleChangeBet }),
+            React.createElement('div', { className: 'paylines-info' }, `Играем на ${paylines.length} линий, ставка умножается на выигрыш.`)
           ),
-
-          // Кнопка SPIN
-          React.createElement('button', {
-            className: 'spin-btn',
-            onClick: handleSpin,
-            disabled: isSpinning
-          }, isSpinning ? 'SPIN...' : 'SPIN'),
-
-          // Сообщение (результат, подсказка, выигрыш)
+          // Если reelsData не null – значит идёт анимация, иначе отображаем финальный результат
+          reelsData ? renderAnimatedReels() : renderStaticReels(),
+          React.createElement('button', { className: 'spin-btn', onClick: handleSpin, disabled: isSpinning },
+            isSpinning ? 'SPIN...' : 'SPIN'
+          ),
           React.createElement('div', { className: 'message' }, message)
         );
       }
