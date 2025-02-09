@@ -6,11 +6,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>React Slot Machine</title>
   <style>
-    /* Определяем базовый размер ячейки через CSS-переменную */
     :root {
       --cell-size: 80px;
     }
-    /* На маленьких экранах уменьшаем размер ячеек */
     @media (max-width: 600px) {
       :root {
         --cell-size: 60px;
@@ -120,12 +118,18 @@
       object-fit: contain;
     }
 
-    /* Ключевые кадры для анимации «вращения» */
+    /* Ключевые кадры с лёгким bounce‑эффектом */
     @keyframes spinAnimation {
-      from {
+      0% {
         transform: translateY(0);
       }
-      to {
+      80% {
+        transform: translateY(calc(-1 * var(--translate-distance)));
+      }
+      90% {
+        transform: translateY(calc(-1 * var(--translate-distance) + 5px));
+      }
+      100% {
         transform: translateY(calc(-1 * var(--translate-distance)));
       }
     }
@@ -142,8 +146,11 @@
     (function() {
       const { useState } = React;
 
-      // Звуковой эффект вращения (можно заменить URL на другой звук)
-      const spinSound = new Audio('https://actions.google.com/sounds/v1/alarms/beep_short.ogg');
+      /* Звуковые эффекты.
+         Замените URL‑ы на подходящие по вашему выбору. */
+      const reelSpinSound = new Audio('https://actions.google.com/sounds/v1/cartoon/clang_and_wobble.ogg');
+      reelSpinSound.loop = true;
+      const reelStopSound = new Audio('https://actions.google.com/sounds/v1/cartoon/pop.ogg');
 
       // Иконки для символов
       const icons = {
@@ -154,7 +161,7 @@
         pear:   'https://cdn-icons-png.flaticon.com/512/415/415743.png',
       };
 
-      // Массив символов с весом и базовой наградой
+      // Символы с весом и базовой наградой
       const symbols = [
         { name: 'monkey', icon: icons.monkey, weight: 1,  payoutBase: 30 },
         { name: 'banana', icon: icons.banana, weight: 2,  payoutBase: 20 },
@@ -163,21 +170,19 @@
         { name: 'pear',   icon: icons.pear,   weight: 4,  payoutBase: 5 },
       ];
 
-      // Генерируем массив с повторениями символов согласно их весу
+      // Массив с повторениями символов по весу
       let weightedSymbols = [];
       symbols.forEach(s => {
         for (let i = 0; i < s.weight; i++) {
           weightedSymbols.push(s);
         }
       });
-
-      // Функция случайного выбора символа с учётом веса
       function randomSymbol() {
         const index = Math.floor(Math.random() * weightedSymbols.length);
         return weightedSymbols[index];
       }
 
-      // Paylines – линии проверки (индексы согласно расположению в сетке 5x3)
+      // Paylines (линии выигрыша, для сетки 5x3)
       const paylines = [
         [0, 1, 2, 3, 4],
         [5, 6, 7, 8, 9],
@@ -190,7 +195,6 @@
         [5, 11, 12, 13, 9]
       ];
 
-      // Подсчёт выигрыша по линии
       function calcLineWin(cells, lineIndices, bet) {
         const firstSymbol = cells[lineIndices[0]];
         let matchCount = 1;
@@ -214,13 +218,12 @@
       }
 
       function App() {
-        // Хранение финальных ячеек (15 символов)
         const [cells, setCells] = useState(Array(15).fill(null));
         const [credits, setCredits] = useState(100);
         const [bet, setBet] = useState(1);
         const [message, setMessage] = useState('Добро пожаловать в Monkey Slot!');
         const [isSpinning, setIsSpinning] = useState(false);
-        // reelsData – данные для анимации (массив из 5 столбцов, каждый – массив символов)
+        // reelsData – данные для анимации вращения (по 5 столбцов)
         const [reelsData, setReelsData] = useState(null);
 
         function handleSpin() {
@@ -233,28 +236,26 @@
           setMessage('Крутим барабаны...');
           setIsSpinning(true);
 
-          // Проигрываем звук
-          spinSound.currentTime = 0;
-          spinSound.play();
+          // Запускаем звук вращения
+          reelSpinSound.currentTime = 0;
+          reelSpinSound.play();
 
           // Генерируем финальный результат – 15 символов
           const newCells = Array(15).fill(null).map(() => randomSymbol());
-          const extraCount = 10; // Количество дополнительных символов для эффекта вращения
+          const extraCount = 10; // число дополнительных символов для эффекта вращения
           const newReelsData = [];
           for (let col = 0; col < 5; col++) {
-            // Для столбца: итоговые символы (из финального результата)
-            const finalSymbols = [newCells[col], newCells[col+5], newCells[col+10]];
+            const finalSymbols = [newCells[col], newCells[col + 5], newCells[col + 10]];
             const extraSymbols = [];
             for (let i = 0; i < extraCount; i++) {
               extraSymbols.push(randomSymbol());
             }
-            // Полный столбец для анимации: сначала "лишние" символы, потом финальные
             const fullReel = extraSymbols.concat(finalSymbols);
             newReelsData.push(fullReel);
           }
           setReelsData(newReelsData);
 
-          // Определяем размер ячейки из CSS (по умолчанию 80px)
+          // Определяем размер ячейки из CSS
           let cellSize = 80;
           const rootStyle = getComputedStyle(document.documentElement);
           const cellSizeValue = rootStyle.getPropertyValue('--cell-size').trim();
@@ -264,11 +265,15 @@
               cellSize = parsed;
             }
           }
-          // Расстояние, на которое «прокрутится» столбец – число дополнительных символов * размер ячейки
           const translation = extraCount * cellSize;
-          // Ждем окончания анимации (1.5с + небольшой запас), после чего обновляем состояние финального результата
-          const animationDuration = 1500;
+          // Увеличенная длительность анимации: 3000 мс (3 сек)
+          const animationDuration = 3000;
           setTimeout(() => {
+            // Останавливаем звук вращения и проигрываем звук остановки
+            reelSpinSound.pause();
+            reelStopSound.currentTime = 0;
+            reelStopSound.play();
+
             let totalWin = 0;
             paylines.forEach(line => {
               const lineWin = calcLineWin(newCells, line, bet);
@@ -284,7 +289,6 @@
             setReelsData(null);
             setIsSpinning(false);
           }, animationDuration + 200);
-          // Для анимации используется значение translation, которое применяется через CSS-переменную
         }
 
         function handleChangeBet(e) {
@@ -294,7 +298,7 @@
           }
         }
 
-        // Рендер анимированных барабанов (во время вращения)
+        // Рендер анимированных барабанов во время вращения
         function renderAnimatedReels() {
           const extraCount = 10;
           let cellSize = 80;
@@ -307,6 +311,7 @@
             }
           }
           const translation = extraCount * cellSize;
+          const animationDuration = 3000; // длительность анимации в мс
           return React.createElement('div', { className: 'reels-container' },
             reelsData.map((reel, col) => {
               return React.createElement('div', { className: 'reel', key: col },
@@ -314,8 +319,8 @@
                   className: 'reel-inner', 
                   style: {
                     '--translate-distance': translation + 'px',
-                    animation: `spinAnimation 1.5s ease-out forwards`,
-                    animationDelay: `${col * 0.1}s`
+                    animation: `spinAnimation ${animationDuration}ms cubic-bezier(0.22, 1, 0.36, 1) forwards`,
+                    animationDelay: `${col * 0.15}s`
                   }
                 },
                 reel.map((symbol, idx) => {
@@ -346,14 +351,13 @@
         }
 
         return React.createElement('div', null, 
-          React.createElement('h1', null, 'Monkey Slot Machine'),
+          React.createElement('h1', null, 'Joe Hacker Slot Machine'),
           React.createElement('div', { className: 'info-panel' }, `Кредиты: ${credits}`),
           React.createElement('div', { className: 'controls' },
             'Ставка: ',
             React.createElement('input', { type: 'number', min: 1, value: bet, onChange: handleChangeBet }),
             React.createElement('div', { className: 'paylines-info' }, `Играем на ${paylines.length} линий, ставка умножается на выигрыш.`)
           ),
-          // Если reelsData не null – значит идёт анимация, иначе отображаем финальный результат
           reelsData ? renderAnimatedReels() : renderStaticReels(),
           React.createElement('button', { className: 'spin-btn', onClick: handleSpin, disabled: isSpinning },
             isSpinning ? 'SPIN...' : 'SPIN'
